@@ -50,12 +50,21 @@ body {
 .app {
   position: fixed;
   inset: 0;
-  /* A column: the playfield, then the control band under it. On a desktop there is no band and the stage simply
-     fills the window, so this is a no-op there. */
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+/* Rails either side of the playfield — a landscape phone, where width is the slack axis. */
+.app-rails {
+  flex-direction: row;
+}
+
+/* A band under it — a tablet, where height is the slack axis. On a desktop there are no controls at all and the
+   stage simply fills the window, so both of these are no-ops there. */
+.app-band,
+.app-none {
+  flex-direction: column;
 }
 
 /*
@@ -87,34 +96,56 @@ canvas {
   touch-action: none;
 }
 
-/* ---- the control band ----------------------------------------------------- */
+/* ---- the touch controls --------------------------------------------------- */
 
-.band {
-  flex: 1 1 auto;
-  width: 100%;
+/* Every event in a control zone belongs to the sticks, and the zones must not shrink — the playfield gives ground
+   before they do. */
+.band,
+.rail {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  touch-action: none;
+}
+
+.band {
+  width: 100%;
   gap: 0.5rem;
   padding: 0 clamp(0.75rem, 4vw, 2.5rem);
   padding-bottom: env(safe-area-inset-bottom);
-  /* Every event in here belongs to the sticks. */
-  touch-action: none;
   /* A hairline, so the band reads as a separate surface from the arena rather than as more arena. */
   border-top: 1px solid rgba(127, 233, 255, 0.12);
   background: linear-gradient(to bottom, rgba(127, 233, 255, 0.04), rgba(3, 4, 12, 0));
 }
 
-.band-half {
+.rail {
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.7rem;
+}
+
+/* Clear of a notch or a rounded corner on whichever side it is. */
+.rail-left {
+  padding-left: env(safe-area-inset-left);
+}
+
+.rail-right {
+  padding-right: env(safe-area-inset-right);
+}
+
+/* The touch surface for one stick: the whole zone, not just the drawn ring — a thumb landing anywhere in it starts
+   the stick, and the ring is a hint rather than a target. */
+.zone {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  /* Each half claims its share of the band, so a thumb landing anywhere in it starts that stick — the drawn ring
-     is a hint, not a target. */
   flex: 1 1 0;
+  width: 100%;
   height: 100%;
 }
 
@@ -162,18 +193,19 @@ canvas {
   background: rgba(255, 94, 168, 0.8);
 }
 
-.band-label {
+.zone-label {
   font-size: clamp(0.45rem, 1.6vw, 0.6rem);
   letter-spacing: 0.24em;
   color: var(--neon-dim);
   text-transform: uppercase;
 }
 
-/* Between the sticks rather than in a corner, which is where a thumb already is. */
-.band-bomb {
+/* Sits with the move stick — see the note in `TouchZones`. Small, because it is pressed rarely and must not crowd
+   the stick it shares a rail with. */
+.zone-bomb {
   flex: 0 0 auto;
-  width: clamp(52px, 13vw, 76px);
-  height: clamp(52px, 13vw, 76px);
+  width: clamp(46px, 11vw, 68px);
+  height: clamp(46px, 11vw, 68px);
   border-radius: 50%;
   background: rgba(255, 209, 102, 0.1);
   border: 1px solid rgba(255, 209, 102, 0.5);
@@ -183,45 +215,8 @@ canvas {
   letter-spacing: 0.14em;
 }
 
-.band-bomb:active {
+.zone-bomb:active {
   background: rgba(255, 209, 102, 0.3);
-}
-
-/* ---- portrait ------------------------------------------------------------- */
-
-.rotate {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ink);
-  text-align: center;
-}
-
-.rotate-card {
-  text-transform: uppercase;
-}
-
-.rotate-glyph {
-  font-size: 3rem;
-  color: var(--neon);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.rotate-title {
-  margin: 1rem 0 0.4rem;
-  font-size: clamp(0.8rem, 4vw, 1.1rem);
-  letter-spacing: 0.3em;
-  text-shadow: 0 0 16px rgba(127, 233, 255, 0.6);
-}
-
-.rotate-note {
-  margin: 0;
-  font-size: clamp(0.55rem, 3vw, 0.7rem);
-  letter-spacing: 0.2em;
-  color: var(--neon-dim);
 }
 
 /* ---- HUD ------------------------------------------------------------------ */

@@ -251,7 +251,7 @@ describe('the bomb', () => {
   it('clears the touch latch as well as the keyboard one', () => {
     const both = raw({
       bombTapped: true,
-      touch: { move: null, aim: null, bomb: false, bombTapped: true },
+      touch: { move: null, aim: null, bomb: false, bombTapped: true, rolled: false },
     })
     clearTaps(both)
     expect(both.bombTapped).toBe(false)
@@ -260,7 +260,7 @@ describe('the bomb', () => {
   })
 
   it('fires from a latched touch tap', () => {
-    const tapped = raw({ touch: { move: null, aim: null, bomb: false, bombTapped: true } })
+    const tapped = raw({ touch: { move: null, aim: null, bomb: false, bombTapped: true, rolled: false } })
     expect(intentFrom(tapped, origin, freshInputMemory()).bomb).toBe(true)
   })
 
@@ -275,7 +275,7 @@ describe('the bomb', () => {
     ).toBe(true)
     expect(
       intentFrom(
-        raw({ touch: { move: null, aim: null, bomb: true, bombTapped: false } }),
+        raw({ touch: { move: null, aim: null, bomb: true, bombTapped: false, rolled: false } }),
         origin,
         freshInputMemory(),
       ).bomb,
@@ -288,7 +288,7 @@ describe('touch', () => {
     const result = intentFrom(
       raw({
         keys: new Set(['w']),
-        touch: { move: { x: -1, y: 0 }, aim: { x: 0, y: -1 }, bomb: false, bombTapped: false },
+        touch: { move: { x: -1, y: 0 }, aim: { x: 0, y: -1 }, bomb: false, bombTapped: false, rolled: false },
       }),
       origin,
       freshInputMemory(),
@@ -300,10 +300,52 @@ describe('touch', () => {
 
   it('does not fire on a released aim stick', () => {
     const result = intentFrom(
-      raw({ touch: { move: { x: 1, y: 0 }, aim: null, bomb: false, bombTapped: false } }),
+      raw({ touch: { move: { x: 1, y: 0 }, aim: null, bomb: false, bombTapped: false, rolled: false } }),
       origin,
       freshInputMemory(),
     )
     expect(result.firing).toBe(false)
+  })
+
+  it('turns the sticks to match a rolled view', () => {
+    // Portrait rolls the camera a quarter turn (see `layout.ts`), and the sticks are the one input in screen space —
+    // so a thumb pushed towards the top of the glass has to arrive as "up the screen", which in a rolled world is the
+    // arena's +x. Without this the ship flies sideways from every input, which is unplayable and would not show up in
+    // any screenshot.
+    const result = intentFrom(
+      raw({ touch: { move: { x: 0, y: 1 }, aim: { x: 1, y: 0 }, bomb: false, bombTapped: false, rolled: true } }),
+      origin,
+      freshInputMemory(),
+    )
+    // Compared component-wise rather than with `toEqual`, because a rotation through a right angle produces a signed
+    // zero and `toEqual` holds -0 and 0 to be different objects. They are the same direction.
+    expect(result.move.x).toBeCloseTo(1)
+    expect(result.move.y).toBeCloseTo(0)
+    expect(result.aim.x).toBeCloseTo(0)
+    expect(result.aim.y).toBeCloseTo(-1)
+  })
+
+  it('leaves the sticks alone when the view is upright', () => {
+    const result = intentFrom(
+      raw({ touch: { move: { x: 0, y: 1 }, aim: { x: 1, y: 0 }, bomb: false, bombTapped: false, rolled: false } }),
+      origin,
+      freshInputMemory(),
+    )
+    expect(result.move).toEqual({ x: 0, y: 1 })
+    expect(result.aim).toEqual({ x: 1, y: 0 })
+  })
+
+  it('does not change how fast the ship goes when the view rolls', () => {
+    // A rotation must not scale. If it did, the ship would be a different speed in portrait than in landscape, which
+    // is the kind of thing that gets called "floaty" rather than "rotated wrong".
+    const stick = { x: 0.6, y: 0.8 }
+    for (const rolled of [false, true]) {
+      const result = intentFrom(
+        raw({ touch: { move: stick, aim: null, bomb: false, bombTapped: false, rolled } }),
+        origin,
+        freshInputMemory(),
+      )
+      expect(Math.hypot(result.move.x, result.move.y)).toBeCloseTo(1)
+    }
   })
 })

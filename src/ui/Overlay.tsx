@@ -51,8 +51,11 @@ export function Overlay() {
                 <p>
                   <strong>RIGHT STICK</strong> aim &amp; fire
                 </p>
+                {/* Where the bomb is depends on the arrangement — between the sticks in a band, under the move stick
+                    on rails (see `TouchRail`) — so it is described by what it looks like rather than by where it is.
+                    An instruction that points at the wrong corner of the screen is worse than no instruction. */}
                 <p>
-                  <strong>BOMB</strong> between them
+                  <strong>BOMB</strong> the gold button
                 </p>
                 <p className="overlay-dim">Move and aim are independent — that is the game.</p>
               </>

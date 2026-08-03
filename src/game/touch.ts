@@ -15,9 +15,22 @@ export interface TouchState {
   /** Latched press, cleared by the loop. See `RawInput.bombTapped` — a tap inside one frame must not be
    *  lost, and a thumb on glass taps at least as quickly as a finger on a key. */
   bombTapped: boolean
+  /**
+   * Whether the view is rolled a quarter turn (portrait — see `layout.ts`).
+   *
+   * Written by the touch UI, because the sticks are the only input in screen space and so the only one that has to
+   * be rotated to match the camera. See `TouchIntent.rolled`, which is where it is actually used.
+   */
+  rolled: boolean
 }
 
-export const touch: TouchState = { move: null, aim: null, bomb: false, bombTapped: false }
+export const touch: TouchState = {
+  move: null,
+  aim: null,
+  bomb: false,
+  bombTapped: false,
+  rolled: false,
+}
 
 /** Both sticks released, everything off. Called when the sticks unmount, so a scheme change cannot
  *  leave the ship flying into a wall on a stick that is no longer on screen. */
@@ -26,4 +39,6 @@ export function releaseTouch(): void {
   touch.aim = null
   touch.bomb = false
   touch.bombTapped = false
+  // `rolled` deliberately survives: it describes the view, not a press, and clearing it here would leave the sticks
+  // mapped to the wrong axes for the frame after any remount.
 }

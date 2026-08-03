@@ -1,3 +1,4 @@
+import { unroll } from './cameraFit'
 import type { Intent } from './step'
 import type { Vec2 } from './vec'
 
@@ -64,6 +65,15 @@ export interface TouchIntent {
   /** As `RawInput.bombTapped`, for the on-screen button — a thumb can tap glass inside one frame just as
    *  easily as a finger can tap a key. */
   bombTapped: boolean
+  /**
+   * Whether the view is rolled a quarter turn, as portrait is (see `layout.ts`).
+   *
+   * Only the sticks care. They are the one input that is genuinely in *screen* space — a thumb pushed towards the
+   * top of the glass means "up the screen" whichever way the arena is drawn — so they are the one input that has to
+   * be rotated to match the camera. The pointer needs no such thing because it is already unprojected through the
+   * camera into arena coordinates before it arrives here, and a gamepad stick is not attached to the screen at all.
+   */
+  rolled: boolean
 }
 
 /** State the mapping has to remember between frames. Just the bomb, which is edge-triggered
@@ -169,9 +179,11 @@ export function intentFrom(raw: RawInput, shipPos: Vec2, memory: InputMemory): I
   }
 
   if (raw.touch) {
-    if (raw.touch.move) move = raw.touch.move
+    // Screen space into world space. The identity unless the view is rolled — see `TouchIntent.rolled`.
+    const { rolled } = raw.touch
+    if (raw.touch.move) move = unroll(raw.touch.move.x, raw.touch.move.y, rolled)
     if (raw.touch.aim) {
-      aim = raw.touch.aim
+      aim = unroll(raw.touch.aim.x, raw.touch.aim.y, rolled)
       firing = true
     }
     if (raw.touch.bomb) bombHeld = true

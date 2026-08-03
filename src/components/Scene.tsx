@@ -24,10 +24,10 @@ import { Ship } from './Ship'
 // deliberate. Additive neon has no occlusion to get wrong, and a hundred thousand sprites with the
 // depth test off is a great deal cheaper than one with it on.
 
-export function Scene() {
+export function Scene({ rolled = false }: { rolled?: boolean }) {
   return (
     <>
-      <CameraRig />
+      <CameraRig rolled={rolled} />
       <Backdrop />
       <Arena />
       <Geoms />
@@ -46,30 +46,38 @@ export function Scene() {
 }
 
 /**
- * The camera: fitted to the window, leaning with the ship, and shaken.
+ * The camera: fitted to the window, leaning with the ship, shaken, and — in portrait — rolled a quarter turn.
  *
  * It never rotates to look at anything. A camera that turns towards the ship would put the arena into
  * perspective from the side, and the grid's lines — which are the game's frame of reference — would
  * converge differently depending on where the player was standing. So it stays square to the arena and
  * only ever translates, which keeps the floor's geometry constant and means the lean can be felt
  * without being read.
+ *
+ * The roll is the one exception, and it is square to the arena too: a quarter turn about the view axis, so a tall
+ * screen can show the arena's long axis running down it instead of a letterboxed strip across the middle. It is
+ * worth nearly three times the playfield area on a portrait phone, and it costs the simulation nothing — the arena
+ * is the same 120 × 68 either way round. See `layout.ts`.
  */
-function CameraRig() {
+function CameraRig({ rolled }: { rolled: boolean }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera
   const size = useThree((state) => state.size)
   /** The fitted distance, kept so the beat can breathe around it without losing the fit. */
   const distance = useRef(0)
+  /** The base roll, kept for the same reason: the shake adds to it every frame and must not overwrite it. */
+  const roll = useRef(0)
   // No lean on a phone, and the fit hands back the margin that was only ever there to cover it. See `MOBILE_LEAN`.
   const lean = isMobile ? MOBILE_LEAN : CAMERA_LEAN
 
   useEffect(() => {
-    const fit = fitCamera(size.width / Math.max(1, size.height), lean)
+    const fit = fitCamera(size.width / Math.max(1, size.height), lean, rolled)
     camera.fov = fit.fov
     distance.current = fit.distance
+    roll.current = fit.roll
     camera.position.set(0, 0, fit.distance)
-    camera.rotation.set(0, 0, 0)
+    camera.rotation.set(0, 0, fit.roll)
     camera.updateProjectionMatrix()
-  }, [camera, size, lean])
+  }, [camera, size, lean, rolled])
 
   useFrame((state, dt) => {
     const shake = stepShake(dt)
@@ -99,8 +107,10 @@ function CameraRig() {
       camera.position.z = distance.current * (1 - beatPulse() * 0.003)
     }
     // A little roll, which is what makes a bomb feel like an impact rather than a pan. Kept under a
-    // degree: any more and the arena's walls visibly stop being parallel to the screen.
-    camera.rotation.z = shake * 0.008 * Math.sin(t * 37)
+    // degree: any more and the arena's walls visibly stop being parallel to the screen. Added to the base roll
+    // rather than assigned — in portrait that base is a quarter turn, and assigning here would undo it on the first
+    // frame and leave the arena letterboxed with the sticks mapped sideways.
+    camera.rotation.z = roll.current + shake * 0.008 * Math.sin(t * 37)
   })
 
   return null

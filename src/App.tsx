@@ -5,7 +5,6 @@ import { FieldProvider } from './components/Field'
 import { Grade } from './components/Grade'
 import { Scene } from './components/Scene'
 import { useAudioRecovery } from './game/audioRecovery'
-import { isTouch } from './game/device'
 import { useLayout } from './game/useLayout'
 import { START_FACTOR } from './game/renderScale'
 import { useMusic } from './game/useMusic'
@@ -13,8 +12,7 @@ import { useRenderDpr } from './game/useRenderDpr'
 import { Respawning, WaveBanner, WaveClear } from './ui/Banners'
 import { Hud } from './ui/Hud'
 import { Overlay } from './ui/Overlay'
-import { RotateHint } from './ui/RotateHint'
-import { TouchZones } from './ui/TouchZones'
+import { TouchBand, TouchRail } from './ui/TouchZones'
 
 export default function App() {
   // The soundtrack follows the wave mode; see `musicCue.ts` for which song goes where.
@@ -28,16 +26,23 @@ export default function App() {
   // See `renderScale.ts`.
   const [factor, setFactor] = useState(START_FACTOR)
 
-  // How the screen is divided between the playfield and the controls. On a desktop the canvas is the window and
-  // this is a no-op; on touch it reserves a band along the bottom and fits the canvas to the arena's own shape.
-  // All the reasoning — and the cost in playfield size — is in `layout.ts`.
+  // How the screen is divided between the playfield and the controls, and which way round the arena is drawn. On a
+  // desktop the canvas is the window and this is a no-op; on touch it reserves space for the sticks, fits the canvas
+  // to the arena's own shape, and on a tall screen rolls the view a quarter turn so the arena's long axis runs down
+  // it. All the reasoning — and the numbers — are in `layout.ts`.
   const layout = useLayout()
   // Priced against the canvas rather than the window: on touch they are different, and the budget is about the
   // pixels actually shaded.
   const dpr = useRenderDpr(factor, layout.canvas)
+  const rails = layout.placement === 'rails'
 
   return (
-    <div className="app">
+    // A row when the controls are rails, a column when they are a band — see `resolveLayout` for which and why.
+    <div className={`app app-${layout.placement}`}>
+      {/* One rail either side of the stage, so in a flex row the playfield ends up between them rather than pushed
+          off the edge — see `TouchRail`. */}
+      {rails ? <TouchRail side="left" layout={layout} /> : null}
+
       <div
         className="stage"
         // Sized in JS rather than by CSS, because the same numbers have to be the ones the layout tests assert on
@@ -61,7 +66,7 @@ export default function App() {
           <color attach="background" args={['#03040c']} />
           <AdaptiveRenderScale onFactor={setFactor} />
           <FieldProvider>
-            <Scene />
+            <Scene rolled={layout.rolled} />
           </FieldProvider>
           <Grade factor={factor} />
         </Canvas>
@@ -74,12 +79,8 @@ export default function App() {
         <Overlay />
       </div>
 
-      {/* The controls get a strip of their own below the playfield. Only where there is no pointer: drawing them on
-          a laptop with a touchscreen would take the mouse away from a player using it. */}
-      {isTouch ? <TouchZones stickRange={layout.stickRange} /> : null}
-
-      {/* Over everything, including the band — there is nothing to do in portrait but turn the phone. */}
-      {layout.rotate ? <RotateHint /> : null}
+      {rails ? <TouchRail side="right" layout={layout} /> : null}
+      {layout.placement === 'band' ? <TouchBand layout={layout} /> : null}
     </div>
   )
 }

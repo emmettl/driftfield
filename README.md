@@ -50,24 +50,44 @@ thruster points, and the two being different is most of the skill.
 | **Arrow keys** | aim *and* fire, for a keyboard-only player |
 | **Shift / Space** | bomb |
 | **Gamepad** | both sticks; the right stick is also the trigger |
-| **Touch** | two sticks in a control band below the playfield, bomb between them |
+| **Touch** | two sticks in space of their own — rails either side in landscape, a band below in portrait |
 
 Whichever aim you used last wins, so a mouse and the arrow keys can be swapped between mid-wave
 without a mode switch.
 
 ### On a phone
 
-The controls get a band of their own along the bottom, and the playfield is only the space above it. That
-is not a stylistic choice: sticks drawn *over* the arena — which is what the first version did — put your
-thumbs exactly where the ship is, covering the two things you most need to see.
+The controls get space of their own, and the playfield is what is left. That is not a stylistic choice:
+sticks drawn *over* the arena — which is what the first version did — put your thumbs exactly where the
+ship is, covering the two things you most need to see.
 
-It costs real playfield. The arena is a fixed 120 × 68 and cannot be reshaped to suit a screen, because it
-*is* the level — a player on one device must not be able to see enemies a player on another cannot. A
-landscape phone is around 2.2:1 against the arena's 1.76:1, so the arena's height is what binds, and every
-pixel of band is a pixel of height it cannot use. Two things claw some of it back:
+It costs real playfield, and the arena cannot be reshaped to pay for it. It is a fixed 120 × 68 because it
+*is* the level: a player on one device must not be able to see enemies a player on another cannot. But
+**which way round it is drawn is free**, and that is the idea the layout turns on. The camera can be rolled
+a quarter turn so the arena's long axis runs *down* the screen — and because nothing about the simulation
+changes, a player in portrait is looking at the same 120 × 68 arena as a player in landscape, rotated on the
+glass. Same level, same spawns, same distances.
+
+It matters more than anything else here. On a portrait phone the upright arena is a 430 × 244 strip across
+the middle of a tall screen; rolled, it is 407 × 718 — **2.8 times the area**, at 5.98 pixels per world unit
+against 3.58. In landscape the comparison reverses just as hard. So rather than guessing per device class,
+both orientations are costed and the bigger one wins, and portrait needed no changes to `src/game` at all.
+
+The controls then follow from the orientation. A rolled view is a tall screen and hands rest at the bottom
+of a tall screen, so they get a band there. An upright view on a wide screen has slack at the sides and
+thumbs that reach them, so they become rails — which costs the playfield nothing, since the arena is drawn
+as large as the *tighter* axis allows and the looser axis was going spare. Either way one rule applies:
+spend the slack first, and only take from the arena if the controls' minimum is not covered. Getting that
+backwards was worth 126 pixels of playfield on a portrait phone.
+
+Rails are deliberately never used on a tall screen even where they measure bigger. On a portrait tablet they
+were two 88-pixel slivers pinned to the bezels with the bomb stranded in the bottom corner: 11% more
+playfield than a band, and materially worse to hold. An area comparison alone will always get that wrong.
+
+Two more things claw back pixels:
 
 - **The canvas is fitted to the arena rather than the window.** Nearly half of a full-width canvas on a
-  phone would be empty space either side of the playfield — and every one of those pixels is still paid for
+  phone would be empty space beside the playfield — and every one of those pixels is still paid for
   by the bloom, the grade and the particle overdraw. Fitting the canvas to the arena's shape throws that
   cost away: on a 844 × 390 viewport it is about 43% fewer pixels to shade, which is the cheapest
   performance decision available on a phone. The strips either side become page background, and the grade
@@ -77,14 +97,15 @@ pixel of band is a pixel of height it cannot use. Two things claw some of it bac
   it to register on a screen that size — and gets that margin back, worth about a tenth of the arena's
   drawn size.
 
-The stick's travel is derived *from* the band's height rather than fixed independently, so the two cannot
-disagree; the HUD collapses to a single row along the top edge, which is the one band of the arena you are
-rarely flying through; and a phone in portrait is asked to turn round rather than being handed a playfield
-the shape of a letterbox. A tablet in portrait is left alone — 0.7:1 is wasteful and perfectly playable,
-and telling somebody to rotate a device that works is worse than a slightly empty screen.
+The stick's travel is derived *from* the space its zone has rather than fixed independently, so the two
+cannot disagree; and the HUD collapses to a single row along the top edge, which is the one band of the
+arena you are rarely flying through.
 
 All of it is decided by one pure function, [`resolveLayout`](src/game/layout.ts), because "does the
 playfield end up a sensible size" is much easier to answer with a test than with a screenshot on one device.
+The one thing it cannot answer is whether the sticks steer the right way once the view is rolled — a thumb
+pushed up the glass has to become the arena's +x, and the sign has to agree with the camera. That is
+[`unroll`](src/game/cameraFit.ts), tested against the roll angle itself rather than against a copy of it.
 
 ### What is shooting at you
 
@@ -283,7 +304,7 @@ on the way to the title screen is the game rather than a drum machine that may n
 
 ## Testing
 
-332 tests, all in Node, all in about a second, because nothing worth testing here needs a GPU or
+344 tests, all in Node, all in about a second, because nothing worth testing here needs a GPU or
 a browser.
 
 ```bash
@@ -294,7 +315,8 @@ What is actually pinned down is the reasoning rather than the plumbing: that a w
 at it and ignores one going past, that a wave cannot end while a well is alive, that dying costs the
 multiplier, that a sniper aims at where you are rather than leading you, that the spawn director cannot put
 four wells on the field, that the camera fits the arena in a portrait window even once it has leaned
-towards the ship, and that every notated drum line in every song is exactly sixteen steps long.
+towards the ship, that a thumb pushed up the glass steers up the screen when the view is rolled a quarter
+turn, and that every notated drum line in every song is exactly sixteen steps long.
 
 Two of them play whole runs. One drives two simulated minutes with no input at all and insists the game
 reaches a game over and stays there; the other fights back for two minutes and checks that nothing leaves

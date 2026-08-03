@@ -1,100 +1,177 @@
 import { describe, expect, it } from 'vitest'
-import { ARENA_ASPECT, arenaFill, resolveLayout } from './layout'
+import { ARENA_ASPECT, orientationFor, resolveLayout } from './layout'
 
-/** A landscape phone, roughly an iPhone 14 with Safari's chrome showing. */
-const PHONE = { width: 844, height: 390, touch: true, phone: true }
-/** A tablet in landscape. Touch, but not phone-class. */
+/**
+ * A landscape iPhone with Safari's chrome showing, in CSS pixels.
+ *
+ * Taken from a real device rather than invented, because the browser chrome is the whole problem: it costs about a
+ * fifth of the height, which leaves a viewport far wider relative to its height than any emulator preset suggests —
+ * 2.7:1 against an arena of 1.76:1.
+ */
+const PHONE = { width: 874, height: 322, touch: true, phone: true }
+/** The same phone added to the Home Screen, so there is no browser chrome. */
+const PHONE_STANDALONE = { width: 874, height: 402, touch: true, phone: true }
+/** The same phone held upright, chrome showing. 0.52:1 — far taller than the arena is tall. */
+const PHONE_PORTRAIT = { width: 430, height: 822, touch: true, phone: true }
+/** A tablet in landscape — 1.44:1, which is *narrower* than the arena. */
 const TABLET = { width: 1180, height: 820, touch: true, phone: false }
+const TABLET_PORTRAIT = { width: 820, height: 1180, touch: true, phone: false }
 const DESKTOP = { width: 1600, height: 900, touch: false, phone: false }
+
+const TOUCH_SHAPES = [PHONE, PHONE_STANDALONE, PHONE_PORTRAIT, TABLET, TABLET_PORTRAIT]
+
+/** The canvas area, which is what the orientation choice is actually maximising. */
+const area = (shape: Parameters<typeof resolveLayout>[0]) => {
+  const layout = resolveLayout(shape)
+  return layout.canvas.width * layout.canvas.height
+}
 
 describe('resolveLayout', () => {
   it('gives the whole window to the canvas when there is a real pointer', () => {
     const layout = resolveLayout(DESKTOP)
-    expect(layout.band).toBe(0)
+    expect(layout.placement).toBe('none')
     expect(layout.canvas).toEqual({ width: 1600, height: 900 })
-    expect(layout.stickRange).toBe(0)
+    expect(layout.rail).toBe(0)
+    expect(layout.band).toBe(0)
+    expect(layout.rolled).toBe(false)
   })
 
-  it('takes a band off the bottom on touch', () => {
-    const layout = resolveLayout(PHONE)
-    expect(layout.band).toBeGreaterThan(0)
-    expect(layout.canvas.height).toBe(390 - layout.band)
+  it('rolls the view a quarter turn on a tall screen, and leaves a wide one upright', () => {
+    // The idea the file turns on. The arena is 1.76:1 and a phone held upright is 0.52:1, so drawn upright it is a
+    // letterboxed strip; rolled, it runs down the screen. Nothing about the arena changes — only the camera.
+    expect(resolveLayout(PHONE_PORTRAIT).rolled).toBe(true)
+    expect(resolveLayout(TABLET_PORTRAIT).rolled).toBe(true)
+    expect(resolveLayout(PHONE).rolled).toBe(false)
+    expect(resolveLayout(TABLET).rolled).toBe(false)
   })
 
-  it('fits the canvas to the arena on touch rather than filling the width', () => {
-    // The performance decision, and the biggest one available on a phone: a landscape phone is 2.2:1 against an
-    // arena of 1.76:1, so nearly half of a full-width canvas would be empty space that the bloom, the grade and
-    // the particle overdraw all still pay for.
-    const layout = resolveLayout(PHONE)
-    expect(layout.aspect).toBeCloseTo(ARENA_ASPECT, 2)
-    expect(layout.canvas.width).toBeLessThan(PHONE.width)
-    // ...and the arena then fills what is left, which is the point of doing it.
-    expect(layout.fill).toBeCloseTo(1, 2)
+  it('is worth nearly three times the playfield on a portrait phone', () => {
+    // The number that justifies the feature, stated as the comparison it was chosen by: the same viewport, forced
+    // upright, against what rolling actually gives.
+    const rolled = area(PHONE_PORTRAIT)
+    const upright = orientationFor(PHONE_PORTRAIT.width, PHONE_PORTRAIT.height, false).area
+    expect(rolled / upright).toBeGreaterThan(2.5)
   })
 
-  it('saves a real fraction of the pixels by doing so', () => {
-    const layout = resolveLayout(PHONE)
-    const fullWidth = PHONE.width * layout.canvas.height
-    const fitted = layout.canvas.width * layout.canvas.height
-    expect(fitted / fullWidth).toBeLessThan(0.65)
-  })
-
-  it('binds on height instead when the space is narrower than the arena', () => {
-    // A tablet in portrait. The box has to shrink on whichever axis runs out first, or it would be bigger than the
-    // space it is being fitted into.
-    const layout = resolveLayout({ width: 820, height: 1180, touch: true, phone: false })
-    expect(layout.canvas.width).toBeLessThanOrEqual(820)
-    expect(layout.canvas.height).toBeLessThanOrEqual(1180 - layout.band)
-    expect(layout.aspect).toBeCloseTo(ARENA_ASPECT, 2)
-  })
-
-  it('keeps the band inside its floor and ceiling', () => {
-    // A third of a short viewport is not enough to steer with, and a third of a tall one is more than a thumb can
-    // use — so the fraction is bounded at both ends.
-    expect(resolveLayout({ ...PHONE, height: 300 }).band).toBeGreaterThanOrEqual(104)
-    expect(resolveLayout({ ...TABLET, height: 1400 }).band).toBeLessThanOrEqual(190)
-  })
-
-  it('never eats so much of the screen that there is no canvas', () => {
-    // A viewport far shorter than the band's own floor. Better a cramped band than no playfield.
-    const layout = resolveLayout({ ...PHONE, height: 120 })
-    expect(layout.canvas.height).toBeGreaterThan(0)
-    expect(layout.band).toBeLessThan(120)
-  })
-
-  it('derives the stick travel from the band, so the two cannot disagree', () => {
-    // The failure this prevents is a stick whose full deflection is outside the band it is drawn in.
-    for (const shape of [PHONE, TABLET, { ...PHONE, height: 320 }]) {
+  it('never picks the orientation with the smaller playfield', () => {
+    // The choice is made by costing both, so this is the invariant rather than a spot check: whichever way round a
+    // given viewport ends up, the other way round must not have been better. Asked of `orientationFor` — the same
+    // function that made the decision — rather than of a transposed viewport, which is a tempting shortcut and a
+    // wrong one: transposing moves the controls to the other axis as well, so it answers a different question.
+    for (const shape of TOUCH_SHAPES) {
       const layout = resolveLayout(shape)
-      expect(layout.stickRange).toBeGreaterThan(20)
-      expect(layout.stickRange * 2).toBeLessThanOrEqual(layout.band)
+      const rejected = orientationFor(
+        shape.width,
+        shape.height,
+        !layout.rolled,
+      )
+      expect(layout.canvas.width * layout.canvas.height).toBeGreaterThanOrEqual(rejected.area)
     }
   })
 
-  it('leaves the playfield a usable size on a phone', () => {
-    // The question this whole file exists to answer. The band costs arena height directly, and height is the
-    // expensive direction — this is the check that the cost is acceptable rather than something to find out
-    // about on a device.
-    const layout = resolveLayout(PHONE)
-    expect(layout.canvas.height).toBeGreaterThan(180)
-    expect(layout.canvas.width).toBeGreaterThan(330)
-  })
-
-  it('costs the phone more arena than the tablet, which is the trade being made', () => {
-    // Stated as a test because it is counter-intuitive: the band is a fixed number of pixels, so it is a much
-    // bigger share of a short viewport — the device with the least room to give is the one that gives most.
-    const phone = resolveLayout(PHONE)
+  it('spends the slack on the controls before charging the arena for them', () => {
+    // The rule both branches share, and the one that was wrong: the band used to take a fixed share of the height
+    // rather than the *free* height, which cost a portrait phone 126 pixels of playfield and a tablet 68 pixels of
+    // arena width — charging the arena for space that was already going spare.
+    //
+    // A tablet in landscape has plenty of slack below the arena, so the arena should keep its full width.
     const tablet = resolveLayout(TABLET)
-    expect(phone.band / phone.canvas.height).toBeGreaterThan(tablet.band / tablet.canvas.height)
+    expect(tablet.canvas.width).toBe(TABLET.width)
+    // A portrait phone has only about 64 pixels spare, so the band takes its minimum and no more.
+    const phone = resolveLayout(PHONE_PORTRAIT)
+    expect(phone.band).toBe(104)
+    expect(phone.canvas.height).toBeGreaterThan(700)
   })
 
-  it('asks a phone in portrait to turn round, and leaves a tablet alone', () => {
-    expect(resolveLayout({ width: 390, height: 844, touch: true, phone: true }).rotate).toBe(true)
-    // 0.7:1 is wasteful and perfectly playable. Telling somebody to rotate a device that works is worse than a
-    // slightly empty screen.
-    expect(resolveLayout({ width: 820, height: 1180, touch: true, phone: false }).rotate).toBe(false)
-    expect(resolveLayout(PHONE).rotate).toBe(false)
-    expect(resolveLayout(DESKTOP).rotate).toBe(false)
+  it('puts the controls where the hands are, which follows from the orientation', () => {
+    // A wide upright view has slack at the sides and thumbs that reach them, so it gets rails; anything tall gets a
+    // band along the bottom, because that is where hands rest on a tall screen.
+    expect(resolveLayout(PHONE).placement).toBe('rails')
+    expect(resolveLayout(PHONE_STANDALONE).placement).toBe('rails')
+    expect(resolveLayout(PHONE_PORTRAIT).placement).toBe('band')
+    expect(resolveLayout(TABLET).placement).toBe('band')
+  })
+
+  it('never puts rails on a tall screen, even when they would measure bigger', () => {
+    // The defect this pins, found by looking at a portrait tablet rather than at a number: rails there were two
+    // 88-pixel slivers pinned to the bezels with the bomb stranded in the bottom corner. They measured 11% more
+    // playfield than a band and were materially worse to hold — the wrong trade, and one an area comparison alone
+    // will always get wrong. So the orientation decides the arrangement.
+    for (const shape of TOUCH_SHAPES) {
+      const layout = resolveLayout(shape)
+      if (layout.rolled) expect(layout.placement).toBe('band')
+    }
+    expect(resolveLayout(TABLET_PORTRAIT).placement).toBe('band')
+    // ...and it is still much better than not rolling at all, which is what makes the trade affordable.
+    expect(area(TABLET_PORTRAIT)).toBeGreaterThan(
+      orientationFor(TABLET_PORTRAIT.width, TABLET_PORTRAIT.height, false).area * 1.5,
+    )
+  })
+
+  it('gives a landscape phone the full height for its playfield', () => {
+    // The bug this replaces: a bottom band came out of the *tight* axis, so the arena was 385 × 218 where it could
+    // have been 568 × 322 — less than half the area, for nothing.
+    const layout = resolveLayout(PHONE)
+    expect(layout.canvas.height).toBe(PHONE.height)
+    expect(layout.canvas.width).toBeGreaterThan(540)
+  })
+
+  it('leaves rails wide enough for a thumb, taking it from the arena if it must', () => {
+    // The controls have a hard minimum and the playfield does not: a viewport so wide that the arena at full height
+    // leaves no room either side would otherwise get unusable slivers.
+    for (const shape of [PHONE, PHONE_STANDALONE, { ...PHONE, width: 700, height: 380 }]) {
+      const layout = resolveLayout(shape)
+      expect(layout.placement).toBe('rails')
+      expect(layout.rail).toBeGreaterThanOrEqual(88)
+      // ...and the arena plus both rails still fits the screen.
+      expect(layout.canvas.width + layout.rail * 2).toBeLessThanOrEqual(shape.width)
+    }
+  })
+
+  it('does not let a rail grow past what a thumb can reach across', () => {
+    const layout = resolveLayout({ width: 2400, height: 400, touch: true, phone: false })
+    expect(layout.rail).toBeLessThanOrEqual(168)
+  })
+
+  it('fits the canvas and the controls inside the viewport, whatever the arrangement', () => {
+    for (const shape of TOUCH_SHAPES) {
+      const layout = resolveLayout(shape)
+      expect(layout.canvas.width + layout.rail * 2).toBeLessThanOrEqual(shape.width)
+      expect(layout.canvas.height + layout.band).toBeLessThanOrEqual(shape.height)
+    }
+  })
+
+  it('keeps the canvas arena-shaped, one way round or the other', () => {
+    // Which only decides whether the leftover space is inside the canvas or outside it — outside being far cheaper,
+    // since every pixel inside is paid for by the bloom, the grade and the particle overdraw.
+    for (const shape of TOUCH_SHAPES) {
+      const layout = resolveLayout(shape)
+      expect(layout.aspect).toBeCloseTo(layout.rolled ? 1 / ARENA_ASPECT : ARENA_ASPECT, 2)
+    }
+  })
+
+  it('draws the arena bigger in portrait than in landscape on the same phone', () => {
+    // The user-visible claim: turning the phone upright makes the playfield larger, not smaller. Compared in pixels
+    // per world unit rather than in area, because that is what "the playfield is tiny" was actually about.
+    expect(resolveLayout(PHONE_PORTRAIT).scale).toBeGreaterThan(resolveLayout(PHONE).scale * 1.2)
+  })
+
+  it('derives the stick travel from the zone, so the two cannot disagree', () => {
+    // The failure this prevents is a stick whose full deflection is outside the zone it is drawn in.
+    for (const shape of [...TOUCH_SHAPES, { ...PHONE, height: 300 }]) {
+      const layout = resolveLayout(shape)
+      const zone = layout.placement === 'rails' ? layout.rail : layout.band
+      expect(layout.stickRange).toBeGreaterThan(20)
+      expect(layout.stickRange * 2).toBeLessThanOrEqual(zone)
+    }
+  })
+
+  it('never returns a canvas larger than the space it was given', () => {
+    for (const shape of [...TOUCH_SHAPES, DESKTOP, { ...PHONE, width: 320, height: 200 }]) {
+      const layout = resolveLayout(shape)
+      expect(layout.canvas.width).toBeLessThanOrEqual(shape.width)
+      expect(layout.canvas.height).toBeLessThanOrEqual(shape.height)
+    }
   })
 
   it('survives a zero or nonsense viewport', () => {
@@ -102,24 +179,5 @@ describe('resolveLayout', () => {
     expect(Number.isFinite(layout.aspect)).toBe(true)
     expect(layout.canvas.height).toBeGreaterThan(0)
     expect(layout.canvas.width).toBeGreaterThan(0)
-  })
-})
-
-describe('arenaFill', () => {
-  it('is 1 when the canvas is exactly the arena shape', () => {
-    expect(arenaFill(ARENA_ASPECT)).toBeCloseTo(1)
-  })
-
-  it('falls off either side of it', () => {
-    // A canvas wider than the arena wastes width; a narrower one wastes height. Both are the same loss.
-    expect(arenaFill(ARENA_ASPECT * 2)).toBeCloseTo(0.5)
-    expect(arenaFill(ARENA_ASPECT / 2)).toBeCloseTo(0.5)
-  })
-
-  it('never exceeds 1', () => {
-    for (const aspect of [0.2, 0.5, 1, 1.77, 2.4, 4]) {
-      expect(arenaFill(aspect)).toBeLessThanOrEqual(1)
-      expect(arenaFill(aspect)).toBeGreaterThan(0)
-    }
   })
 })

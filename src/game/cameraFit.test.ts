@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { CAMERA_LEAN, FOV, MOBILE_LEAN, cameraDistance, fitCamera, marginFor } from './cameraFit'
+import {
+  CAMERA_LEAN,
+  FOV,
+  MOBILE_LEAN,
+  ROLL,
+  cameraDistance,
+  fitCamera,
+  marginFor,
+  unroll,
+} from './cameraFit'
 import { ARENA } from './constants'
 
 /** What is actually visible at a distance, so the test checks the arena rather than the arithmetic. */
@@ -73,6 +82,70 @@ describe('cameraDistance', () => {
   it('does not divide by a zero aspect', () => {
     expect(Number.isFinite(cameraDistance(FOV, 0))).toBe(true)
   })
+
+  it('fits the arena rolled a quarter turn, which is how portrait works', () => {
+    // Rolled, the screen's vertical axis has to cover the arena's *width* and its horizontal the arena's height. The
+    // check is the same as every other fit here, with the extents swapped — because the arena has not changed, only
+    // which way round it is being looked at.
+    const aspect = 430 / 718
+    const view = visible(FOV, aspect, cameraDistance(FOV, aspect, MOBILE_LEAN, true))
+    expect(view.height).toBeGreaterThanOrEqual(ARENA.halfWidth * 2)
+    expect(view.width).toBeGreaterThanOrEqual(ARENA.halfHeight * 2)
+  })
+
+  it('gets much closer rolled than upright on a portrait viewport', () => {
+    // Where the playfield size actually comes from: fitting the arena's long axis to the screen's long axis instead
+    // of across its short one lets the camera come in, and everything is drawn correspondingly bigger.
+    const aspect = 430 / 718
+    const rolled = cameraDistance(FOV, aspect, MOBILE_LEAN, true)
+    const upright = cameraDistance(FOV, aspect, MOBILE_LEAN, false)
+    expect(rolled).toBeLessThan(upright * 0.7)
+  })
+
+  it('fits every shape of window rolled, too', () => {
+    for (const aspect of [0.45, 0.6, 1, 1.33, 1.78]) {
+      const view = visible(FOV, aspect, cameraDistance(FOV, aspect, CAMERA_LEAN, true))
+      expect(view.height).toBeGreaterThanOrEqual(ARENA.halfWidth * 2)
+      expect(view.width).toBeGreaterThanOrEqual(ARENA.halfHeight * 2)
+    }
+  })
+})
+
+describe('unroll', () => {
+  it('is the identity when the view is upright', () => {
+    expect(unroll(0.6, -0.8, false)).toEqual({ x: 0.6, y: -0.8 })
+  })
+
+  it('sends a thumb pushed up the screen to the arena, not sideways', () => {
+    // The transform that has to agree with `ROLL`, and the one place a sign error would be invisible in a screenshot
+    // and obvious the moment somebody tried to play. With `camera.rotation.z = -π/2` the arena's +x appears as screen
+    // up, so a stick pushed up the screen must come back as +x.
+    //
+    // Component-wise, because a right-angle rotation produces signed zeros and `toEqual` holds -0 and 0 apart.
+    const cases: [[number, number], [number, number]][] = [
+      [[0, 1], [1, 0]], // up the screen    -> +x
+      [[1, 0], [0, -1]], // right           -> -y
+      [[0, -1], [-1, 0]], // down           -> -x
+      [[-1, 0], [0, 1]], // left            -> +y
+    ]
+    for (const [[sx, sy], [wx, wy]] of cases) {
+      const world = unroll(sx, sy, true)
+      expect(world.x).toBeCloseTo(wx)
+      expect(world.y).toBeCloseTo(wy)
+    }
+  })
+
+  it('matches the roll the camera is actually given', () => {
+    // Derived from `ROLL` rather than hard-coded, so the two cannot drift apart: rotating a screen direction by ROLL
+    // is what the camera does to it, and `unroll` must be exactly that.
+    const [x, y] = [0.38, 0.92]
+    expect(unroll(x, y, true).x).toBeCloseTo(x * Math.cos(ROLL) - y * Math.sin(ROLL))
+    expect(unroll(x, y, true).y).toBeCloseTo(x * Math.sin(ROLL) + y * Math.cos(ROLL))
+  })
+
+  it('preserves magnitude, so rolling cannot change the ship speed', () => {
+    expect(Math.hypot(...Object.values(unroll(0.6, 0.8, true)))).toBeCloseTo(1)
+  })
 })
 
 describe('fitCamera', () => {
@@ -80,6 +153,11 @@ describe('fitCamera', () => {
     const fit = fitCamera(1.78)
     expect(fit.fov).toBe(FOV)
     expect(fit.distance).toBeCloseTo(cameraDistance(FOV, 1.78))
+    expect(fit.roll).toBe(0)
+  })
+
+  it('hands back the roll when the view is rolled', () => {
+    expect(fitCamera(0.6, MOBILE_LEAN, true).roll).toBe(ROLL)
   })
 
   it('keeps the field of view narrow, so the grid stays nearly parallel', () => {

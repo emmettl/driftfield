@@ -29,10 +29,12 @@ export function useLayout(): Layout {
       // buffer and every render target in the composer, and a phone fires resize events continuously while the URL
       // bar animates. Most of those resolve to the layout already in use.
       setLayout((current) =>
+        current.placement === next.placement &&
+        current.rail === next.rail &&
         current.band === next.band &&
         current.canvas.width === next.canvas.width &&
         current.canvas.height === next.canvas.height &&
-        current.rotate === next.rotate
+        current.rolled === next.rolled
           ? current
           : next,
       )

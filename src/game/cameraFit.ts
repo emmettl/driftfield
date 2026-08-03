@@ -30,13 +30,25 @@ export function marginFor(lean: number): number {
  * The vertical half-angle is `fov / 2`; the horizontal one is derived from it through the
  * aspect ratio. Fitting *both* means taking the larger of the two required distances —
  * which is the whole trick, and the reason this is a function rather than a constant.
+ *
+ * `rolled` is a quarter turn about the view axis, which portrait uses to run the arena's long axis down the screen
+ * (see `layout.ts`). All it changes here is which of the arena's half-extents each screen axis has to cover — the
+ * arena itself is untouched, which is the entire appeal of doing portrait this way.
  */
-export function cameraDistance(fovDegrees: number, aspect: number, lean = CAMERA_LEAN): number {
+export function cameraDistance(
+  fovDegrees: number,
+  aspect: number,
+  lean = CAMERA_LEAN,
+  rolled = false,
+): number {
   const halfFov = (fovDegrees * Math.PI) / 360
   const margin = marginFor(lean)
-  const forHeight = (ARENA.halfHeight * margin) / Math.tan(halfFov)
+  // Which arena extent lands on which screen axis. Rolled, the screen's vertical covers the arena's *width*.
+  const down = rolled ? ARENA.halfWidth : ARENA.halfHeight
+  const across = rolled ? ARENA.halfHeight : ARENA.halfWidth
+  const forHeight = (down * margin) / Math.tan(halfFov)
   // A perspective camera's horizontal half-angle satisfies tan(h) = tan(v) * aspect.
-  const forWidth = (ARENA.halfWidth * margin) / (Math.tan(halfFov) * Math.max(aspect, 1e-3))
+  const forWidth = (across * margin) / (Math.tan(halfFov) * Math.max(aspect, 1e-3))
   return Math.max(forHeight, forWidth)
 }
 
@@ -52,8 +64,27 @@ export const FOV = 38
 
 /** Everything the camera needs, for a given viewport shape. Pure, so the test can check
  *  that a portrait window pulls back further than a landscape one. */
-export function fitCamera(aspect: number, lean = CAMERA_LEAN): { fov: number; distance: number } {
-  return { fov: FOV, distance: cameraDistance(FOV, aspect, lean) }
+export function fitCamera(
+  aspect: number,
+  lean = CAMERA_LEAN,
+  rolled = false,
+): { fov: number; distance: number; roll: number } {
+  return { fov: FOV, distance: cameraDistance(FOV, aspect, lean, rolled), roll: rolled ? ROLL : 0 }
+}
+
+/**
+ * The roll itself, in radians, for a rolled view.
+ *
+ * Negative, and the sign is load-bearing: with `camera.rotation.z = -π/2` the arena's +x appears as screen *up*, so
+ * screen-space directions come back into world space as `(y, -x)`. `intentFrom` applies exactly that to the touch
+ * sticks, and the two have to agree or "up" steers sideways — which is why the transform lives next to the angle
+ * rather than being open-coded at the call site.
+ */
+export const ROLL = -Math.PI / 2
+
+/** A screen-space direction in world space, for a rolled view. The identity when upright. */
+export function unroll(x: number, y: number, rolled: boolean): { x: number; y: number } {
+  return rolled ? { x: y, y: -x } : { x, y }
 }
 
 /**
