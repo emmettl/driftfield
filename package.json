@@ -1,0 +1,52 @@
+{
+  "name": "driftfield",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A neon twin-stick shooter where the arena is a fluid simulation.",
+  "license": "MIT",
+  "author": "Louis Emmett",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/emmettl/driftfield.git"
+  },
+  "homepage": "https://emmettl.github.io/driftfield/",
+  "keywords": [
+    "game",
+    "twin-stick",
+    "webgl",
+    "react-three-fiber",
+    "fluid-simulation",
+    "web-audio"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@driftbox/engine": "^0.3.0",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.7.0",
+    "@react-three/postprocessing": "^3.0.4",
+    "postprocessing": "^6.39.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/three": "^0.185.3",
+    "@vitejs/plugin-react": "^6.0.5",
+    "oxlint": "^1.77.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

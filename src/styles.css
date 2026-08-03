@@ -1,0 +1,557 @@
+/*
+ * The chrome around the arena.
+ *
+ * Everything here is over a canvas that is redrawing the whole window sixty times a second, so the rules
+ * are stricter than they look: no backdrop filters (each one is a full-screen readback), no box shadows on
+ * anything that animates, and nothing that can trigger a layout while the game is running. The glow on the
+ * text is `text-shadow`, which is composited and free; the same look via a filter would cost a pass.
+ *
+ * No bundled font. An arcade game wants a pixel face and the honest trade is that a webfont is 30–60kB
+ * before anything is drawn, for text that is on screen for two seconds at a time. A tight monospace stack
+ * with wide tracking gets most of the way there, renders instantly, and cannot flash unstyled.
+ */
+
+:root {
+  --neon: #7fe9ff;
+  --neon-dim: #3d7f94;
+  --hot: #ff5ea8;
+  --gold: #ffd166;
+  --ink: #03040c;
+  --face: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--ink);
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--face);
+  color: var(--neon);
+  /* A game you aim with must not select its own HUD when you drag across it, and on iOS a long press over
+     the canvas would otherwise offer to copy the page. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Stops the page rubber-banding under a thumb that is steering. */
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+  /* A column: the playfield, then the control band under it. On a desktop there is no band and the stage simply
+     fills the window, so this is a no-op there. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * The playfield, and everything drawn over it.
+ *
+ * Its size comes from JS (see `resolveLayout`) rather than from CSS, because the same numbers have to be the ones
+ * the layout tests assert on and the ones r3f measures for the camera fit — a CSS approximation would be a second
+ * implementation, free to disagree. On touch it is an arena-shaped box centred above the band; on a desktop it is
+ * the whole window.
+ */
+.stage {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  /*
+   * A size container, so everything drawn over the playfield can be sized against the *playfield* rather than the
+   * window.
+   *
+   * This is load-bearing on a phone and a no-op on a desktop. The HUD, the banners and the overlay were all sized
+   * in `vw`/`vh`, which is the window — and once the stage became an arena-shaped box two-thirds of the window's
+   * width, an `11vw` title was 93 pixels tall in a 482-pixel box and the logo ran off both edges. Container units
+   * below refer to this box, which is the thing the text actually sits in.
+   */
+  container-type: size;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+/* ---- the control band ----------------------------------------------------- */
+
+.band {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 clamp(0.75rem, 4vw, 2.5rem);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Every event in here belongs to the sticks. */
+  touch-action: none;
+  /* A hairline, so the band reads as a separate surface from the arena rather than as more arena. */
+  border-top: 1px solid rgba(127, 233, 255, 0.12);
+  background: linear-gradient(to bottom, rgba(127, 233, 255, 0.04), rgba(3, 4, 12, 0));
+}
+
+.band-half {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  /* Each half claims its share of the band, so a thumb landing anywhere in it starts that stick — the drawn ring
+     is a hint, not a target. */
+  flex: 1 1 0;
+  height: 100%;
+}
+
+/* The drawn base. Fixed and always visible: a stick you cannot see is a stick you have to find, and on a phone you
+   are finding it while something is flying at you. Its size is set inline — see `TouchZones`. */
+.stick {
+  position: relative;
+  flex: 0 0 auto;
+  /* Bright enough to find without looking for it. The first version was a 25%-alpha hairline, which measures fine
+     and is invisible on glass in anything but a dark room — and the whole point of drawing the base is that a
+     thumb can find it before it needs to. */
+  border: 2px solid rgba(127, 233, 255, 0.45);
+  border-radius: 50%;
+}
+
+.stick-aim {
+  border-color: rgba(255, 94, 168, 0.5);
+}
+
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34%;
+  height: 34%;
+  margin: -17% 0 0 -17%;
+  border-radius: 50%;
+  background: rgba(127, 233, 255, 0.35);
+  transition: background 0.12s linear;
+  /* Moved by writing a transform directly — never through React state. A thumb produces an event every frame, and
+     re-rendering this strip sixty times a second to move two circles would be the most expensive thing on the
+     page. */
+  will-change: transform;
+}
+
+.stick-knob[data-held='yes'] {
+  background: rgba(127, 233, 255, 0.75);
+}
+
+.stick-aim .stick-knob {
+  background: rgba(255, 94, 168, 0.35);
+}
+
+.stick-aim .stick-knob[data-held='yes'] {
+  background: rgba(255, 94, 168, 0.8);
+}
+
+.band-label {
+  font-size: clamp(0.45rem, 1.6vw, 0.6rem);
+  letter-spacing: 0.24em;
+  color: var(--neon-dim);
+  text-transform: uppercase;
+}
+
+/* Between the sticks rather than in a corner, which is where a thumb already is. */
+.band-bomb {
+  flex: 0 0 auto;
+  width: clamp(52px, 13vw, 76px);
+  height: clamp(52px, 13vw, 76px);
+  border-radius: 50%;
+  background: rgba(255, 209, 102, 0.1);
+  border: 1px solid rgba(255, 209, 102, 0.5);
+  color: var(--gold);
+  font: inherit;
+  font-size: clamp(0.45rem, 1.5vw, 0.6rem);
+  letter-spacing: 0.14em;
+}
+
+.band-bomb:active {
+  background: rgba(255, 209, 102, 0.3);
+}
+
+/* ---- portrait ------------------------------------------------------------- */
+
+.rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  text-align: center;
+}
+
+.rotate-card {
+  text-transform: uppercase;
+}
+
+.rotate-glyph {
+  font-size: 3rem;
+  color: var(--neon);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.rotate-title {
+  margin: 1rem 0 0.4rem;
+  font-size: clamp(0.8rem, 4vw, 1.1rem);
+  letter-spacing: 0.3em;
+  text-shadow: 0 0 16px rgba(127, 233, 255, 0.6);
+}
+
+.rotate-note {
+  margin: 0;
+  font-size: clamp(0.55rem, 3vw, 0.7rem);
+  letter-spacing: 0.2em;
+  color: var(--neon-dim);
+}
+
+/* ---- HUD ------------------------------------------------------------------ */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  /* Inside the stage, so on touch these sit over the playfield rather than over the control band. */
+  /* The HUD is a readout, not a control surface — every pointer event belongs to the game. The one thing
+     in here that is clickable turns its own pointer events back on. */
+  pointer-events: none;
+  padding: clamp(0.6rem, 2cqw, 1.6rem);
+  /* Keeps the corners clear of a notch or a rounded display. */
+  padding-top: max(clamp(0.6rem, 2cqw, 1.6rem), env(safe-area-inset-top));
+  padding-bottom: max(clamp(0.6rem, 2cqw, 1.6rem), env(safe-area-inset-bottom));
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.hud-corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.hud-top-left {
+  top: inherit;
+  left: clamp(0.6rem, 2cqw, 1.6rem);
+  top: clamp(0.6rem, 2cqw, 1.6rem);
+}
+
+.hud-top-right {
+  right: clamp(0.6rem, 2cqw, 1.6rem);
+  top: clamp(0.6rem, 2cqw, 1.6rem);
+  align-items: flex-end;
+}
+
+.hud-bottom-left {
+  left: clamp(0.6rem, 2cqw, 1.6rem);
+  bottom: max(clamp(0.6rem, 2cqw, 1.6rem), env(safe-area-inset-bottom));
+}
+
+.hud-bottom-right {
+  right: clamp(0.6rem, 2cqw, 1.6rem);
+  bottom: max(clamp(0.6rem, 2cqw, 1.6rem), env(safe-area-inset-bottom));
+  align-items: flex-end;
+}
+
+.hud-label {
+  font-size: clamp(0.55rem, 1.1cqw, 0.7rem);
+  color: var(--neon-dim);
+  letter-spacing: 0.28em;
+}
+
+.hud-score {
+  font-size: clamp(1.4rem, 4cqw, 2.6rem);
+  font-weight: 700;
+  line-height: 1;
+  /* Tabular figures, so a score that ticks up does not shuffle the digits either side of the one that
+     changed — which at this size is very visible and very annoying. */
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px rgba(127, 233, 255, 0.55);
+}
+
+.hud-multiplier {
+  font-size: clamp(0.9rem, 2cqw, 1.3rem);
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(255, 209, 102, 0.5);
+}
+
+.hud-multiplier-hot {
+  color: var(--hot);
+  font-size: clamp(1.1rem, 2.6cqw, 1.8rem);
+  text-shadow: 0 0 16px rgba(255, 94, 168, 0.7);
+}
+
+.hud-best,
+.hud-wave {
+  font-size: clamp(0.8rem, 1.6cqw, 1.1rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.hud-pips {
+  font-size: clamp(0.8rem, 1.6cqw, 1.1rem);
+  letter-spacing: 0.2em;
+  text-shadow: 0 0 10px rgba(127, 233, 255, 0.5);
+}
+
+.hud-pips-bomb {
+  color: var(--gold);
+  text-shadow: 0 0 10px rgba(255, 209, 102, 0.5);
+}
+
+.hud-sound {
+  pointer-events: auto;
+  margin-top: 0.4rem;
+  background: none;
+  border: 1px solid rgba(127, 233, 255, 0.3);
+  color: var(--neon-dim);
+  font: inherit;
+  font-size: clamp(0.5rem, 1cqw, 0.65rem);
+  letter-spacing: 0.2em;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.hud-sound:hover {
+  color: var(--neon);
+  border-color: rgba(127, 233, 255, 0.7);
+}
+
+/*
+ * The touch HUD: one row along the top edge.
+ *
+ * On touch the stage is the arena, so a corner of it is a corner of the playfield — see the note in `Hud.tsx`. One
+ * row along the top keeps the bottom, where the ship lives, completely clear.
+ */
+.hud-compact {
+  padding: 0;
+}
+
+.hud-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(0.4rem, 2cqw, 0.9rem);
+  padding: 0.3rem clamp(0.4rem, 2cqw, 0.9rem);
+  /* A wash behind it, so the readouts stay legible over a bright grid or a wash of dye without needing a solid bar
+     that would eat playfield. */
+  background: linear-gradient(to bottom, rgba(3, 4, 12, 0.72), rgba(3, 4, 12, 0));
+}
+
+.hud-strip .hud-score {
+  font-size: clamp(0.85rem, 4cqh, 1.4rem);
+}
+
+.hud-strip .hud-multiplier,
+.hud-strip .hud-multiplier-hot {
+  font-size: clamp(0.7rem, 3cqh, 1.1rem);
+}
+
+.hud-strip .hud-pips {
+  font-size: clamp(0.6rem, 2.6cqh, 0.9rem);
+}
+
+/* Pushes the toggle to the far end, whatever is in front of it. */
+.hud-strip .hud-sound {
+  margin: 0 0 0 auto;
+  min-width: 2rem;
+  font-size: clamp(0.6rem, 2.6cqh, 0.85rem);
+  padding: 0.1rem 0.4rem;
+}
+
+/* ---- banners -------------------------------------------------------------- */
+
+.banner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  pointer-events: none;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  /* Above the middle rather than in it: the middle is where the ship is, and a card over the ship at the
+     start of a wave hides the first thing that shoots at you. */
+  padding-bottom: 22cqh;
+  animation: banner-in 0.28s ease-out both;
+}
+
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.banner-wave {
+  font-size: clamp(1.4rem, 5cqw, 3rem);
+  font-weight: 700;
+  text-shadow: 0 0 20px rgba(127, 233, 255, 0.6);
+}
+
+.banner-mode {
+  font-size: clamp(0.7rem, 2cqw, 1.1rem);
+  color: var(--neon-dim);
+  letter-spacing: 0.45em;
+}
+
+.banner-mode-belt {
+  color: #ffab6b;
+  text-shadow: 0 0 14px rgba(255, 171, 107, 0.5);
+}
+
+.banner-mode-singularity {
+  color: #c98bff;
+  text-shadow: 0 0 18px rgba(201, 139, 255, 0.65);
+}
+
+.banner-clear .banner-wave {
+  color: var(--gold);
+  text-shadow: 0 0 20px rgba(255, 209, 102, 0.6);
+}
+
+.banner-respawn .banner-mode {
+  color: var(--hot);
+  text-shadow: 0 0 16px rgba(255, 94, 168, 0.6);
+}
+
+/* ---- overlay -------------------------------------------------------------- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Catches the click that starts the game, which is the whole reason it covers the arena. */
+  pointer-events: auto;
+  cursor: pointer;
+  /* A wash rather than a blur: a backdrop filter over a live canvas is a full-screen readback every frame,
+     and the arena is still simulating behind this. */
+  background: radial-gradient(ellipse at center, rgba(3, 4, 12, 0.35) 0%, rgba(3, 4, 12, 0.82) 70%);
+}
+
+.overlay-card {
+  text-align: center;
+  text-transform: uppercase;
+  animation: banner-in 0.4s ease-out both;
+}
+
+.overlay-title {
+  margin: 0;
+  font-size: clamp(2.2rem, 11cqw, 6.5rem);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  color: #eafaff;
+  text-shadow:
+    0 0 18px rgba(127, 233, 255, 0.8),
+    0 0 60px rgba(64, 140, 255, 0.55);
+}
+
+.overlay-over {
+  color: #ffd8e8;
+  text-shadow:
+    0 0 18px rgba(255, 94, 168, 0.8),
+    0 0 60px rgba(255, 94, 168, 0.4);
+}
+
+.overlay-tagline {
+  margin: 0.6rem 0 1.8rem;
+  font-size: clamp(0.6rem, 1.6cqw, 0.9rem);
+  letter-spacing: 0.4em;
+  color: var(--neon-dim);
+}
+
+.overlay-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: clamp(0.55rem, 1.3cqw, 0.75rem);
+  letter-spacing: 0.2em;
+  color: var(--neon-dim);
+}
+
+.overlay-controls p {
+  margin: 0;
+}
+
+.overlay-controls strong {
+  color: var(--neon);
+  font-weight: 700;
+}
+
+.overlay-dim {
+  color: #2f5f70;
+}
+
+.overlay-score {
+  font-size: clamp(2rem, 8cqw, 4rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0.8rem 0 0.2rem;
+  text-shadow: 0 0 20px rgba(127, 233, 255, 0.6);
+}
+
+.overlay-best {
+  color: var(--gold);
+  letter-spacing: 0.4em;
+  font-size: clamp(0.6rem, 1.6cqw, 0.9rem);
+  text-shadow: 0 0 16px rgba(255, 209, 102, 0.6);
+}
+
+.overlay-start {
+  margin-top: 2rem;
+  background: none;
+  border: none;
+  color: var(--neon);
+  font: inherit;
+  font-size: clamp(0.6rem, 1.5cqw, 0.85rem);
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  cursor: pointer;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}

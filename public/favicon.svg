@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The drifter's diamond, glowing on the arena's black. A favicon is 16 pixels in practice, so this is
+       one shape with a wide blur behind it rather than anything with detail in it. -->
+  <rect width="32" height="32" fill="#03040c" />
+  <g fill="none" stroke="#7fe9ff" stroke-width="2.6" filter="url(#glow)">
+    <path d="M16 5 L27 16 L16 27 L5 16 Z" />
+  </g>
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+</svg>
