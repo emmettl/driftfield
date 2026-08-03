@@ -1,5 +1,7 @@
 # Driftfield
 
+**[Play it →](https://emmettl.github.io/driftfield/)**
+
 A neon twin-stick shooter in the Geometry Wars / Asteroids line, where the arena is a fluid
 simulation — and not decoratively. There is one velocity field, and everything reads from it: the
 smoke over the arena is dye advected through it, the sparks are 65,000 tracers dropped into it, and
