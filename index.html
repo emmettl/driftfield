@@ -18,11 +18,22 @@
       content="A neon twin-stick shooter where the arena is a fluid simulation. Every explosion pushes the same velocity field the smoke, the sparks and the grid all read from."
     />
 
-    <!-- Link previews (iMessage, WhatsApp, Slack, Signal, social). Scrapers do not run JavaScript, so
-         these live in the static HTML. og:image must be an absolute URL, and there is no screenshot yet —
-         so it is left out deliberately rather than pointed at a file that 404s, which is worse than no
-         preview image at all. When one is added, version the filename: WhatsApp and iMessage cache a
-         preview against the image URL for a long time. -->
+    <!-- Link previews (iMessage, WhatsApp, Slack, Signal, social). Scrapers do not run JavaScript, so these live
+         in the static HTML and the image has to be a real file rather than anything the game renders.
+         `og-preview-1.jpg` is a genuine frame of the attract screen — captured on the GPU at the moment the fluid
+         wash crosses the wordmark, with the control legend and HUD hidden — so it cannot drift out of date with the
+         way the game actually looks.
+
+         Four things here are load-bearing rather than decorative:
+           - og:image is an **absolute** URL. A relative one resolves against the scraper, not the page, and simply
+             fails. It was previously omitted entirely, which is why links unfurled with no image at all.
+           - The filename is **versioned**. WhatsApp and iMessage cache a preview against the image URL for a long
+             time, so replacing the picture means `-2`, not overwriting this file.
+           - **JPEG, 173 KB.** A PNG of the same frame was 742 KB, and some clients give up on a slow or heavy
+             fetch and fall back to a bare text card. Neon on black is exactly what JPEG handles badly, so it is
+             quality 90 rather than the usual 80 — there is no visible banding in the dark half at this size.
+           - twitter:card is **summary_large_image**. With `summary` a 1.91:1 image is cropped to a small square,
+             which throws away the wordmark. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Driftfield" />
     <meta property="og:title" content="Driftfield" />
@@ -31,12 +42,27 @@
       content="A neon twin-stick shooter where the arena is a fluid simulation."
     />
     <meta property="og:url" content="https://emmettl.github.io/driftfield/" />
+    <meta
+      property="og:image"
+      content="https://emmettl.github.io/driftfield/og-preview-1.jpg"
+    />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The word DRIFTFIELD glowing over a neon grid, with a wave of fluid washing across it."
+    />
 
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Driftfield" />
     <meta
       name="twitter:description"
       content="A neon twin-stick shooter where the arena is a fluid simulation."
+    />
+    <meta
+      name="twitter:image"
+      content="https://emmettl.github.io/driftfield/og-preview-1.jpg"
     />
   </head>
   <body>
